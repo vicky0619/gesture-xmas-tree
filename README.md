@@ -1,6 +1,7 @@
 # Gesture Interactive Christmas Tree
 
 A premium 3D particle experience controlled by hand gestures. Built with React, Three.js, and MediaPipe.
+Demo: https://gesture-xmas-tree.vercel.app/
 
 ## Features
 - **3D Particle System**: Thousands of gold, red, and emerald particles.
