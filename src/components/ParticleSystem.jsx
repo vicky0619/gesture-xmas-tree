@@ -1,161 +1,158 @@
-import React, { useRef, useMemo, useEffect, useState } from 'react'
+import React, { useRef, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
-const COUNT = 3000;
+// CRITICAL FIX: Reduced count to prevent GPU overload
+const COUNT = 1200;
 const DUMMY = new THREE.Object3D();
-const COLOR_GOLD = new THREE.Color('#FFD700');
-const COLOR_RED = new THREE.Color('#FF0000');
-const COLOR_EMERALD = new THREE.Color('#50C878');
-const COLORS = [COLOR_GOLD, COLOR_RED, COLOR_EMERALD];
+const POS = new THREE.Vector3();
+const VEL = new THREE.Vector3();
+const FORCE = new THREE.Vector3();
+
+// Colors: Gold, Red, Emerald (Premium Palette)
+const COLOR_PALETTE = [
+    new THREE.Color('#F8F0E3'), // Cream Gold
+    new THREE.Color('#FFD700'), // Pure Gold
+    new THREE.Color('#C41E3A'), // Cardinal Red
+    new THREE.Color('#50C878'), // Emerald
+];
 
 const ParticleSystem = ({ mode }) => {
-    // Two meshes: Cubes and Spheres
-    const cubesRef = useRef();
-    const spheresRef = useRef();
+    const meshRef = useRef();
+    const prevMode = useRef(mode);
 
-    // Generate stable random data
     const particles = useMemo(() => {
         const data = [];
         for (let i = 0; i < COUNT; i++) {
-            // Explode Target: Sphere distribution
+            // 1. NEBULA POS (Open/Explode State)
+            const r = Math.pow(Math.random(), 3) * 6 + 1;
             const theta = Math.random() * Math.PI * 2;
             const phi = Math.acos((Math.random() * 2) - 1);
-            const r = 3 + Math.random() * 4; // Radius 3 to 7
-            const explodeX = r * Math.sin(phi) * Math.cos(theta);
-            const explodeY = r * Math.sin(phi) * Math.sin(theta);
-            const explodeZ = r * Math.cos(phi);
 
-            // Tree Target: Conical Spiral
-            // Height from -3 to 3 (Total h=6)
-            const h = (Math.random() * 6) - 3;
-            const treeY = h;
-            // Radius depends on height. Bottom (y=-3) -> R=2.5. Top (y=3) -> R=0.1
-            const normalizedH = (h + 3) / 6; // 0 to 1
-            const spiralR = (1 - normalizedH) * 2.5 + 0.2;
-            const spiralTheta = h * 5 + Math.random() * 0.5; // Spiral tightness
-            const treeX = spiralR * Math.cos(spiralTheta);
-            const treeZ = spiralR * Math.sin(spiralTheta);
+            const nebulaX = r * Math.sin(phi) * Math.cos(theta);
+            const nebulaY = r * Math.sin(phi) * Math.sin(theta);
+            const nebulaZ = r * Math.cos(phi);
 
-            // Assign color randomly
-            const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+            // 2. TREE POS (Fist State) -> Layered Conical
+            const levels = 15;
+            const levelIdx = Math.floor(Math.random() * levels);
+            const levelHeight = (levelIdx / (levels - 1)) * 6 - 3;
+            const normalizedH = (levelHeight + 3) / 6;
+            const coneR = (1 - normalizedH) * 2.8;
+            const ringTheta = Math.random() * Math.PI * 2;
+            const layerJitterY = (Math.random() - 0.5) * 0.3;
 
-            // Random scales
-            const scale = 0.05 + Math.random() * 0.1;
+            const treeX = coneR * Math.cos(ringTheta);
+            const treeY = levelHeight + layerJitterY;
+            const treeZ = coneR * Math.sin(ringTheta);
 
             data.push({
-                start: new THREE.Vector3(explodeX, explodeY, explodeZ), // Initial state
-                treePos: new THREE.Vector3(treeX, treeY, treeZ),
-                explodePos: new THREE.Vector3(explodeX, explodeY, explodeZ),
-                currentPos: new THREE.Vector3(explodeX, explodeY, explodeZ), // Start exploded
-                color: color,
-                scale: scale,
-                speed: 0.02 + Math.random() * 0.05,
-                type: Math.random() > 0.5 ? 'CUBE' : 'SPHERE', // 50/50 split
-                rotationAxis: new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize()
+                pos: new THREE.Vector3(nebulaX, nebulaY, nebulaZ),
+                vel: new THREE.Vector3(0, 0, 0),
+                nebulaTarget: new THREE.Vector3(nebulaX, nebulaY, nebulaZ),
+                treeTarget: new THREE.Vector3(treeX, treeY, treeZ),
+                color: COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)],
+                scale: Math.random() * 0.12 + 0.05,
+                mass: 1 + Math.random(),
+                drag: 0.9 + Math.random() * 0.05,
             });
         }
         return data;
     }, []);
 
     useFrame((state, delta) => {
-        // We will update both meshes each frame
-        // Split indices? No, we have logic in loop to pick mesh
-        // Actually, InstancedMesh API requires us to index 0..N per mesh used.
-        // So we need to separate particles into two buckets: Cubes and Spheres arrays.
-        // But doing it dynamically is hard.
-        // Simplified: Just use ONE mesh (Spheres) OR make two useMemos.
-        // Let's stick to user request "Small balls + small cubes".
-        // I will split the data into two arrays inside useMemo, but here I have one array.
-        // I will re-architect useMemo below to return { cubes: [], spheres: [] }
-    });
-
-    return (
-        <group>
-            <SubSystem data={particles.filter(p => p.type === 'CUBE')} geometry="box" mode={mode} />
-            <SubSystem data={particles.filter(p => p.type === 'SPHERE')} geometry="sphere" mode={mode} />
-        </group>
-    );
-};
-
-const SubSystem = ({ data, geometry, mode }) => {
-    const meshRef = useRef();
-
-    useFrame((state, delta) => {
         if (!meshRef.current) return;
 
-        let targetVectorName = mode === 'FIST' ? 'treePos' : 'explodePos';
-        // Add subtle rotation to the whole group?
-        // Let's rotate individual particles or move them.
-
-        // Time for Nebula rotation
+        // Clamp Delta
+        const dt = Math.min(delta, 0.1);
         const t = state.clock.getElapsedTime();
+        const isTree = mode === 'FIST';
+        const isTransition = prevMode.current !== mode;
 
-        data.forEach((particle, i) => {
-            // Determine Target
-            const target = particle[targetVectorName];
+        meshRef.current.rotation.y += 0.002;
 
-            // Logic for "Explode" movement:
-            // If explode, add some rotation/orbiting to make it a "Nebula" (swirly)
-            let tx = target.x;
-            let ty = target.y;
-            let tz = target.z;
+        particles.forEach((p, i) => {
+            // SAFETY: NaN Reset
+            if (isNaN(p.pos.x)) { p.pos.set(0, 0, 0); p.vel.set(0, 0, 0); }
 
-            if (mode === 'OPEN') {
-                // Swirl effect
-                const angle = t * 0.2;
-                const rx = tx * Math.cos(angle) - tz * Math.sin(angle);
-                const rz = tx * Math.sin(angle) + tz * Math.cos(angle);
-                tx = rx;
-                tz = rz;
+            // --- HYBRID ENGINE ---
+            // MODE A: TREE (Lerp - CRASH PROOF)
+            // We use simple linear interpolation for the "Suction" to guarantee stability.
+            if (isTree) {
+                // Eliminate velocity influence when switching to Tree
+                p.vel.multiplyScalar(0.9); // Rapidly kill momentum
+
+                // Direct Lerp: Move 5% of the way to target per frame
+                // This creates an "Zeno's Paradox" exponential slide -> looks like suction
+                p.pos.lerp(p.treeTarget, 0.05);
+
+                // Add tiny jitter for "life"
+                if (Math.random() > 0.9) {
+                    p.pos.x += (Math.random() - 0.5) * 0.01;
+                    p.pos.y += (Math.random() - 0.5) * 0.01;
+                    p.pos.z += (Math.random() - 0.5) * 0.01;
+                }
+
+            }
+            // MODE B: EXPLODE (Physics - Controlled Chaos)
+            else {
+                FORCE.set(0, 0, 0);
+
+                // Impulse on Start
+                if (isTransition && (mode === 'OPEN' || mode === 'EXPLODE')) {
+                    const dir = p.pos.clone().normalize();
+                    if (dir.lengthSq() === 0) dir.set(0, 1, 0);
+                    p.vel.add(dir.multiplyScalar(0.5));
+                }
+
+                // Nebula Attraction
+                POS.copy(p.nebulaTarget).sub(p.pos);
+                FORCE.addScaledVector(POS, 0.2);
+
+                // Vortex
+                const vortexStrength = 0.5;
+                FORCE.x += -p.pos.z * vortexStrength;
+                FORCE.z += p.pos.x * vortexStrength;
+
+                // Integrate
+                VEL.addScaledVector(FORCE, dt / p.mass);
+                VEL.multiplyScalar(p.drag);
+                VEL.clampLength(0, 1.5); // Speed Limit
+
+                p.pos.add(VEL);
             }
 
-            // Lerp current position to target
-            // Use 'damp' like smoothing
-            // particle.currentPos.lerp(tempVec, particle.speed); 
-            // We need to lerp x,y,z manually to avoid creating Vector3 per frame? 
-            // particle.currentPos is reusable
+            // SAFETY: Bounds Limit
+            if (p.pos.lengthSq() > 5000) {
+                p.pos.copy(p.nebulaTarget);
+                p.vel.set(0, 0, 0);
+            }
 
-            const lerpFactor = mode === 'FIST' ? 0.05 : 0.03; // Faster snap to tree
-
-            particle.currentPos.x += (tx - particle.currentPos.x) * lerpFactor;
-            particle.currentPos.y += (ty - particle.currentPos.y) * lerpFactor;
-            particle.currentPos.z += (tz - particle.currentPos.z) * lerpFactor;
-
-            DUMMY.position.set(
-                particle.currentPos.x,
-                particle.currentPos.y,
-                particle.currentPos.z
-            );
-
-            // Rotate the particle itself
-            DUMMY.rotation.x += delta * particle.speed;
-            DUMMY.rotation.y += delta * particle.speed;
-
-            DUMMY.scale.setScalar(particle.scale);
+            DUMMY.position.copy(p.pos);
+            // Pulse logic
+            const pulse = 1 + Math.sin(t * 3 + i) * 0.2;
+            DUMMY.scale.setScalar(p.scale * pulse);
             DUMMY.updateMatrix();
             meshRef.current.setMatrixAt(i, DUMMY.matrix);
         });
 
         meshRef.current.instanceMatrix.needsUpdate = true;
+        prevMode.current = mode;
     });
 
-    // Set colors once on mount (optimized)
     useEffect(() => {
         if (meshRef.current) {
-            data.forEach((particle, i) => {
-                meshRef.current.setColorAt(i, particle.color);
+            particles.forEach((p, i) => {
+                meshRef.current.setColorAt(i, p.color);
             });
             meshRef.current.instanceColor.needsUpdate = true;
         }
-    }, [data]);
+    }, [particles]);
 
     return (
-        <instancedMesh ref={meshRef} args={[null, null, data.length]}>
-            {geometry === 'box' ? <boxGeometry args={[1, 1, 1]} /> : <sphereGeometry args={[1, 8, 8]} />}
-            <meshBasicMaterial
-                toneMapped={false}
-            />
+        <instancedMesh ref={meshRef} args={[null, null, COUNT]}>
+            <sphereGeometry args={[1, 16, 16]} />
+            <meshBasicMaterial toneMapped={false} color="#FFFFFF" />
         </instancedMesh>
     );
 };

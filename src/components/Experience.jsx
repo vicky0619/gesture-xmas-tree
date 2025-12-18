@@ -36,10 +36,11 @@ const Experience = ({ gestureState }) => {
 
             <EffectComposer disableNormalPass>
                 <Bloom
-                    luminanceThreshold={0.1}
+                    luminanceThreshold={0.2} // Higher threshold = only bright things glow (cleaner)
                     mipmapBlur
-                    intensity={1.5}
-                    radius={0.6}
+                    intensity={1.2} // Slightly lower to avoid washout
+                    radius={0.5} // Sharper glow
+                    levels={9}
                 />
             </EffectComposer>
         </Canvas>

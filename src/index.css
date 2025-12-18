@@ -19,7 +19,8 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
-  overflow: hidden; /* Prevent scroll on canvas */
+  overflow: hidden;
+  /* Prevent scroll on canvas */
 }
 
 #root {
@@ -32,8 +33,16 @@ body {
 
 /* Utilities */
 .text-gold {
-  color: #FFD700;
-  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  color: #F8F0E3;
+  /* Creamy Gold base */
+  text-shadow:
+    0 0 2px #FFD700,
+    0 0 10px rgba(255, 215, 0, 0.3),
+    0 0 20px rgba(184, 134, 11, 0.2);
+  background: linear-gradient(to bottom, #FFF, #FFD700, #B8860B);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 5px rgba(255, 215, 0, 0.5));
 }
 
 .text-red {
@@ -46,8 +55,10 @@ body {
 }
 
 .font-premium {
-  font-family: 'Cinzel', serif; /* We will load this or fallback to serif */
-  letter-spacing: 0.1em;
+  font-family: 'Cinzel', serif;
+  letter-spacing: 0.15em;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 button {
@@ -61,13 +72,15 @@ button {
   cursor: pointer;
   transition: border-color 0.25s, transform 0.1s;
 }
+
 button:hover {
   border-color: #FFD700;
 }
+
 button:active {
-    transform: scale(0.95);
+  transform: scale(0.95);
 }
 
 canvas {
-    display: block;
+  display: block;
 }
